@@ -383,6 +383,7 @@
         <select id="deptFilter" style="display:none;">
           <option value="">全部部门</option>
         </select>
+        <button id="exportBtn" style="margin-left:auto;padding:7px 16px;border:1px solid #27ae60;background:#27ae60;color:#fff;border-radius:6px;font-size:0.82rem;cursor:pointer;">📥 导出 Excel</button>
       </div>
 
       <!-- Table -->
@@ -436,6 +437,7 @@
     const $dateFrom = document.getElementById('dateFrom');
     const $dateTo = document.getElementById('dateTo');
     const $dateRangeInfo = document.getElementById('dateRangeInfo');
+    const $exportBtn = document.getElementById('exportBtn');
 
     // ===================== STATE =====================
     const state = {
@@ -1113,6 +1115,42 @@
     // Custom date inputs
     $dateFrom.addEventListener('change', applyCustomDateRange);
     $dateTo.addEventListener('change', applyCustomDateRange);
+
+    // ===================== EXPORT TO EXCEL =====================
+    $exportBtn.addEventListener('click', function() {
+      if (!state.excelData || !state.gitData) return;
+
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Person stats
+      const personRows = [['排名', '姓名', 'GitHub ID', '部门', '提交次数', '新增行数', '删除行数', '净增行数']];
+      state.personStats.forEach((p, i) => {
+        personRows.push([i + 1, p.realName, p.githubId, p.department, p.commits, p.additions, p.deletions, p.additions - p.deletions]);
+      });
+      const ws1 = XLSX.utils.aoa_to_sheet(personRows);
+      ws1['!cols'] = [{wch:6},{wch:12},{wch:16},{wch:10},{wch:10},{wch:12},{wch:12},{wch:12}];
+      XLSX.utils.book_append_sheet(wb, ws1, '人员统计');
+
+      // Sheet 2: Department stats
+      const deptRows = [['排名', '部门', '人数', '提交次数', '新增行数', '删除行数', '净增行数', '人均提交']];
+      state.deptStats.forEach((d, i) => {
+        deptRows.push([i + 1, d.department, d.members, d.commits, d.additions, d.deletions, d.additions - d.deletions, d.members > 0 ? (d.commits / d.members).toFixed(1) : '0']);
+      });
+      const ws2 = XLSX.utils.aoa_to_sheet(deptRows);
+      ws2['!cols'] = [{wch:6},{wch:14},{wch:6},{wch:10},{wch:12},{wch:12},{wch:12},{wch:10}];
+      XLSX.utils.book_append_sheet(wb, ws2, '部门统计');
+
+      // Sheet 3: Unmapped authors
+      const unmappedRows = [['排名', 'Git 作者名', 'Git 作者邮箱', '提交次数', '新增行数', '删除行数', '净增行数']];
+      state.unmappedAuthors.forEach((a, i) => {
+        unmappedRows.push([i + 1, a.author_name, a.author_email, a.commits, a.additions, a.deletions, a.additions - a.deletions]);
+      });
+      const ws3 = XLSX.utils.aoa_to_sheet(unmappedRows);
+      ws3['!cols'] = [{wch:6},{wch:24},{wch:40},{wch:10},{wch:12},{wch:12},{wch:12}];
+      XLSX.utils.book_append_sheet(wb, ws3, '未匹配作者');
+
+      XLSX.writeFile(wb, 'git_commit_stats.xlsx');
+    });
 
     // ===================== QUICK LOAD =====================
     const DEFAULT_FILES = {
