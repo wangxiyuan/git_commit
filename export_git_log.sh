@@ -24,7 +24,9 @@ fi
 cd "$REPO"
 
 # Use git log with markers to delineate commits, piped to Python for safe JSON generation
-git log --all --format=$'__COMMIT__\t%H\t%an\t%ae\t%ad' --date=short --numstat | python3 -c '
+# Uses HEAD only (default branch) to match GitHub's commit count.
+# Use --all to include all branches instead.
+git log HEAD --format=$'__COMMIT__\t%H\t%an\t%ae\t%ad' --date=short --numstat | python3 -c '
 import sys
 import json
 
