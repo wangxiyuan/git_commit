@@ -318,7 +318,7 @@
         <div class="input-row">
           <input type="file" id="excelFile" accept=".xlsx,.xls,.csv">
         </div>
-        <div class="file-status" id="excelStatus">支持 .xlsx / .xls / .csv · 列: GitHub ID, 姓名, 部门</div>
+        <div class="file-status" id="excelStatus">支持 .xlsx / .xls / .csv · 列: GitHub ID, 姓名, 部门, 别名(可选)</div>
       </div>
       <div class="file-picker">
         <label for="gitFile">📋 ② 加载 Git 提交记录 (JSON)</label>
@@ -495,31 +495,29 @@
             githubId: String(r[0] || '').trim(),
             realName: String(r[1] || '').trim(),
             department: String(r[2] || '').trim(),
+            aliases: String(r[3] || '').split(/[,;，；、\s]+/).map(s => s.trim()).filter(Boolean),
           }));
 
-          // Check for duplicate GitHub IDs
-          const ids = new Set();
+          // Deduplicate by realName (not githubId) — a person may have multiple GitHub IDs
+          const seen = new Set();
           const dupes = [];
-          state.excelData.forEach(m => {
-            if (ids.has(m.githubId.toLowerCase())) dupes.push(m.githubId);
-            ids.add(m.githubId.toLowerCase());
+          state.excelData = state.excelData.filter(m => {
+            const k = m.realName.toLowerCase();
+            if (seen.has(k)) {
+              dupes.push(m.realName);
+              return false;
+            }
+            seen.add(k);
+            return true;
           });
 
           let msg = `已加载: ${state.excelData.length} 条成员记录`;
           if (dupes.length > 0) {
-            msg += ` ⚠️ 重复 GitHub ID: ${dupes.join(', ')}（已自动去重）`;
-            // Deduplicate: keep first occurrence
-            const seen = new Set();
-            state.excelData = state.excelData.filter(m => {
-              const k = m.githubId.toLowerCase();
-              if (seen.has(k)) return false;
-              seen.add(k);
-              return true;
-            });
+            msg += ` ⚠️ 重复姓名: ${dupes.join(', ')}（已自动去重）`;
           }
 
           showExcelStatus('loaded', msg);
-          showWarning(dupes.length > 0 ? `检测到重复 GitHub ID: ${dupes.join(', ')}，已保留第一条` : '');
+          showWarning(dupes.length > 0 ? `检测到重复姓名: ${dupes.join(', ')}，已保留第一条` : '');
           tryCompute();
         } catch (err) {
           console.error(err);
@@ -615,26 +613,38 @@
       const emailPrefix = authorEmail.split('@')[0].toLowerCase().trim();
       const nameNorm = authorName.trim().toLowerCase();
       const authorKey = authorName + '|||' + authorEmail;
-      const excelMap = new Map(); // lowercase githubId -> excel row
-      state.excelData.forEach(m => excelMap.set(m.githubId.toLowerCase(), m));
+
+      // Build a helper: check if a given ID (or alias) matches any Excel member.
+      // Returns the matching member, or null.
+      function findMemberById(id) {
+        const idLower = id.toLowerCase().trim();
+        for (const m of state.excelData) {
+          // Check primary GitHub ID
+          if (m.githubId.toLowerCase() === idLower) return m;
+          // Check aliases
+          if (m.aliases && m.aliases.some(a => a.toLowerCase() === idLower)) return m;
+        }
+        return null;
+      }
 
       // 0) Look up in GitHub ID map (from resolve_github_ids.py — most reliable)
       if (state.githubIdMap && state.githubIdMap[authorKey]) {
         const ghId = state.githubIdMap[authorKey].toLowerCase();
-        if (excelMap.has(ghId)) {
-          return { ...excelMap.get(ghId), confidence: 'exact' };
-        }
+        const member = findMemberById(ghId);
+        if (member) return { ...member, confidence: 'exact' };
       }
 
       // 1) Email prefix exact match GitHub ID (corp email prefix = LDAP/GitHub ID)
-      if (excelMap.has(emailPrefix)) {
-        return { ...excelMap.get(emailPrefix), confidence: 'exact' };
-      }
+      const memberByEmail = findMemberById(emailPrefix);
+      if (memberByEmail) return { ...memberByEmail, confidence: 'exact' };
 
       // 2) Email prefix contains GitHub ID or vice versa (e.g. wangxiyuan1007 contains wangxiyuan)
-      for (const [ghId, member] of excelMap) {
-        if (ghId.length >= 3 && (emailPrefix.includes(ghId) || ghId.includes(emailPrefix))) {
-          return { ...member, confidence: 'exact' };
+      for (const m of state.excelData) {
+        const allIds = [m.githubId.toLowerCase(), ...(m.aliases || []).map(a => a.toLowerCase())];
+        for (const id of allIds) {
+          if (id.length >= 3 && (emailPrefix.includes(id) || id.includes(emailPrefix))) {
+            return { ...m, confidence: 'exact' };
+          }
         }
       }
 
@@ -645,10 +655,9 @@
         }
       }
 
-      // 4) author_name match GitHub ID (fallback: some people set user.name as their GitHub ID)
-      if (excelMap.has(nameNorm)) {
-        return { ...excelMap.get(nameNorm), confidence: 'exact' };
-      }
+      // 4) author_name match GitHub ID or alias (fallback)
+      const memberByName = findMemberById(nameNorm);
+      if (memberByName) return { ...memberByName, confidence: 'exact' };
 
       return null;
     }
@@ -679,15 +688,15 @@
       });
 
       // Map each author to Excel
-      const personMap = new Map(); // githubId -> { commits, additions, deletions, confidence }
+      const personMap = new Map(); // realName (lowercase) -> { commits, additions, deletions, confidence }
       state.unmappedAuthors = [];
 
       authorMap.forEach((authorStats, key) => {
         const matched = mapAuthor(authorStats.author_name, authorStats.author_email);
         if (matched) {
-          const id = matched.githubId.toLowerCase();
-          if (!personMap.has(id)) {
-            personMap.set(id, {
+          const personKey = matched.realName.toLowerCase();
+          if (!personMap.has(personKey)) {
+            personMap.set(personKey, {
               githubId: matched.githubId,
               realName: matched.realName,
               department: matched.department,
@@ -697,7 +706,7 @@
               confidence: matched.confidence,
             });
           }
-          const p = personMap.get(id);
+          const p = personMap.get(personKey);
           p.commits += authorStats.commits;
           p.additions += authorStats.additions;
           p.deletions += authorStats.deletions;
@@ -1234,12 +1243,13 @@
               githubId: String(r[0] || '').trim(),
               realName: String(r[1] || '').trim(),
               department: String(r[2] || '').trim(),
+              aliases: String(r[3] || '').split(/[,;，；、\s]+/).map(s => s.trim()).filter(Boolean),
             }));
 
-            // Deduplicate
+            // Deduplicate by realName
             const seen = new Set();
             state.excelData = state.excelData.filter(m => {
-              const k = m.githubId.toLowerCase();
+              const k = m.realName.toLowerCase();
               if (seen.has(k)) return false;
               seen.add(k);
               return true;

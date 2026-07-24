@@ -37,6 +37,14 @@ python3 -m http.server 8080
 
 三列：GitHub ID / 真实姓名 / 所属部门。支持 `.xlsx` `.xls` `.csv`。
 
+> **提示：** 如果一个人有多个 GitHub ID，可以加第 4 列"别名"，多个别名用逗号分隔。例如：
+> 
+> | GitHub ID | 真实姓名 | 所属部门 | 别名 |
+> |-----------|---------|---------|------|
+> | wxsIcey   | wxsIcey | 某部门   | Icey,icey-dev |
+>
+> 匹配时系统会同时检查主 ID 和别名，提交量会自动合并到同一人。
+
 ### ② commits.json
 
 由 `export_git_log.sh` 生成。JSON 数组，每条记录包含：
