@@ -700,6 +700,7 @@
               githubId: matched.githubId,
               realName: matched.realName,
               department: matched.department,
+              aliases: matched.aliases || [],
               commits: 0,
               additions: 0,
               deletions: 0,
@@ -811,7 +812,7 @@
         case 'person':
           return [
             { key: 'realName', label: '姓名' },
-            { key: 'githubId', label: 'GitHub ID' },
+            { key: 'githubId', label: 'GitHub ID', computed: r => r.aliases && r.aliases.length > 0 ? r.githubId + ' / ' + r.aliases.join(', ') : r.githubId },
             { key: 'department', label: '部门' },
             { key: 'commits', label: '提交次数' },
             { key: 'additions', label: '新增行数 (+)' },
